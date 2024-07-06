@@ -1,0 +1,71 @@
+version: 0.2
+env: # 환경변수를 정의합니다.
+  variables:
+    AWS_DEFAULT_REGION: "ap-northeast-1"
+    ECR_URL: "851725230407.dkr.ecr.ap-northeast-1.amazonaws.com/milliapp"
+    IMAGE_REPO_NAME: "milliapp"
+    IMAGE_TAG: "appv02"
+    AWS_ACCOUNT_ID: "851725230407"
+    ECS_FAMILY: "app-service"
+    CONTAINER_NAME: "appv02"
+    NEW_IMAGE_URL: "851725230407.dkr.ecr.ap-northeast-1.amazonaws.com/milliapp:appv02"
+    
+
+phases:
+  install:
+    # https://github.com/aws/aws-codebuild-docker-images/blob/master/ubuntu/standard/4.0/Dockerfile
+    runtime-versions:
+      python: 3.9
+
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image...          
+      
+      #새로운 이미지 url 
+      - echo $NEW_IMAGE_URL
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG      
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - echo Pushed the Docker image!
+
+      # from  https://github.com/cheekykorkind/medium_example/blob/main/terraform/7e3ae5ade965/server/buildspec.yml
+      - export EDITED_TASK_DEF1=task_definition.json
+      - export LAST_TASK_DEF_ARN1=$(aws ecs list-task-definitions --family-prefix $ECS_FAMILY --sort DESC --max-items 1 --query 'taskDefinitionArns[0]' --output json)
+
+      # LAST_TASK_DEF_ARN1의 결과값에 「"」가 붙어있음. 지워야함
+      - LAST_TASK_DEF_ARN1="${LAST_TASK_DEF_ARN1%\"}"
+      - LAST_TASK_DEF_ARN1="${LAST_TASK_DEF_ARN1#\"}"
+      - echo $LAST_TASK_DEF_ARN1
+      - aws ecs describe-task-definition --task-definition $LAST_TASK_DEF_ARN1 --output json | jq . > origin_task_definition1.json
+      - cat origin_task_definition1.json
+
+      - echo setting done
+
+      - cat ./appspec.yml
+
+      #- cat ./appspec.yml | sed -e s@\<ONE_CONTAINER_NAME\>@web@ > ./appspec.yml
+
+      # task def를 만듬
+      - python ./edit_task_def.py
+      
+      #- cat $EDITED_TASK_DEF1 | sed -e s@\<ONE_CONTAINER_NAME\>@$web@ > $EDITED_TASK_DEF1
+
+      - cat $EDITED_TASK_DEF1
+      - cat ./appspec.yml
+
+artifacts:
+  files:
+    - appspec.yml
+    - task_definition.json
+
+
+    
